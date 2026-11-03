@@ -12,5 +12,7 @@ Bu depo Mark Fulton'ın `markfulton/claude-antigravity-agents` projesinin Kuzey 
   3. Çok turlu oturum devamlılığı eklendi: Belirsiz `--continue` yerine deterministik `--conversation <id>` bağlandı.
   4. Çalışma modları ayrıldı: `--mode plan` (salt okunur mimari) ve `--mode accept-edits` (doğrudan kod yazımı).
   5. Sıfır bağımlılıklı Python çalıştırıcısı (`bin/agy-delegate`) yazıldı, `~/.local/bin/agy-delegate` altına bağlandı.
-  6. Skill yerel ortama kuruldu: `~/.claude/skills/antigravity-agents/SKILL.md`.
-  7. Tüm dokümantasyondaki em dash (uzun çizgi) karakterleri temizlendi.
+  6. Otomatik kota denetimi ve geri dönüş (fallback) eklendi: 429/kota aşımında çıkış kodu 42 döner; küçük işlerde Claude kendi içinde çözer, büyük işlerde kullanıcıya sorar.
+  7. Proaktif refleks: Skill tanımı rutin frontend ve amelelik işlerinde Claude'un kullanıcı komutunu beklemeden kendiliğinden devreye girmesi üzerine güncellendi.
+  8. Skill yerel ortama kuruldu: `~/.claude/skills/antigravity-agents/SKILL.md`.
+  9. Tüm dokümantasyondaki em dash (uzun çizgi) karakterleri temizlendi.

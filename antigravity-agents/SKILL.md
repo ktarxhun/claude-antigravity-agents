@@ -1,38 +1,62 @@
 ---
 name: antigravity-agents
-description: Delegate coding, code review, analysis, and research jobs to Google Antigravity CLI (agy) sub-agents that run alongside your own work. Use this whenever the user asks to spin off, offload, or delegate a task to Antigravity, agy, Gemini, or an external sub-agent; wants a second opinion or independent review from a different model; wants intensive repo work (audits, large refactors, research sweeps, frontend boilerplate) run in the background while you keep working; or says things like "have Antigravity do it", "spin up a sub-agent for this", or "get more done in parallel". Also use it proactively when a task is a good fit for parallel delegation and the user has expressed a preference for using Antigravity workers.
+description: Proactively delegate routine coding, frontend HTML/CSS, Tailwind components, boilerplate, code review, and research jobs to Google Antigravity CLI (agy) sub-agents. Automatically trigger this skill whenever a task involves routine frontend implementation, UI components, repetitive boilerplate, or heavy analysis, without waiting for the user to explicitly ask for Antigravity or delegation. Act as the orchestrator: plan the architecture, delegate mechanical tasks to Antigravity, verify the returned code, and integrate it. Includes automatic quota guard with intelligent fallback to internal thinking.
 ---
 
 # Antigravity CLI Sub-Agents
 
-Google Antigravity CLI (`agy`) is an autonomous terminal coding agent powered by Gemini and other models that can inspect repositories, generate code, edit files, and run commands. This skill turns Claude into an orchestrator with full control over the Antigravity sub-agent engine: model selection, reasoning effort, session memory, execution modes, and directory scopes.
+Google Antigravity CLI (`agy`) is an autonomous terminal coding agent powered by Gemini and other models that can inspect repositories, generate code, edit files, and run commands. This skill turns Claude into an orchestrator with full control over the Antigravity sub-agent engine: model selection, reasoning effort, session memory, execution modes, directory scopes, and automated quota monitoring.
 
-Treat an agy job like a specialized contractor: you define the exact technical contract, tune the thinking effort and model tier to match the task's complexity, launch the job non-interactively, continue your primary work, then inspect and verify the returned code before integrating it.
+## Automatic Proactive Delegation Reflex
+
+As an orchestrator (doctor / architect), do not burn expensive primary context window tokens or rate limits on repetitive typing. **Automatically delegate routine tasks without waiting for explicit user instructions.**
+
+### Tasks to Delegate Proactively:
+- Routine frontend components (React/Vue/HTML/CSS, Tailwind cards, navbars, forms, tables).
+- Repetitive boilerplate, DTO interfaces, data mapping, and standard utility functions.
+- Unit test suite generation, mock data creation, and lint/formatting sweeps.
+- Independent code audits, security scans, and research sweeps.
+
+### Tasks to Keep in Claude:
+- High-level architectural planning, system design, and database schema decisions.
+- Security-critical auth logic, payment workflows, and business invariants.
+- Final code verification, build validation, and integration into the codebase.
+
+## Quota Guard and Fallback Protocol
+
+Antigravity operates on your Google account quotas. If Antigravity hits a rate limit, capacity exhaustion, or is temporarily unavailable, follow this decision tree:
+
+1. **Detection:** The runner script `agy-delegate` automatically detects rate limits (429, resource exhausted, quota exceeded) and exits with code `42` plus the tag `[ANTIGRAVITY_QUOTA_EXHAUSTED]`.
+2. **For Quick / Medium Tasks (Under ~150 lines):**
+   - **Think inside yourself and fall back automatically:** Do not block the user. Solve the task directly within your own context.
+   - Note to user: *"Antigravity kotası geçici olarak yoğun olduğundan görevi kendi içimde doğrudan tamamladım."*
+3. **For Large / Heavy Tasks (Massive refactors, 10+ files, large repo scans):**
+   - **Ask the user:** Stop and present the situation clearly:
+     *"Antigravity kotası şu an limit aşımında görünüyor. İki seçeneğimiz var: (1) Görevi Claude olarak kendi context'imde parça parça yürütmek, (2) Bir süre bekleyip Antigravity kotası açılınca devam etmek. Nasıl ilerleyelim?"*
 
 ## Resolving the Binary
 
 After install, `agy` is normally on your `PATH`. If a tool-spawned shell cannot find it (some shells do not inherit a freshly updated PATH), fall back to the full path:
 
 - **Windows:** `%LOCALAPPDATA%\agy\bin\agy.exe` (in Bash-style shells: `"$LOCALAPPDATA/agy/bin/agy.exe"`)
-- **macOS / Linux:** `~/.local/bin/agy` or `which agy`
+- **macOS / Linux:** `~/.local/bin/agy-delegate`, `~/.local/bin/agy` or `which agy`
 
-**Critical: Always close stdin.** `agy` blocks indefinitely (0% CPU, no output, even in print mode) when stdin is an open pipe, which is what non-interactive tool shells provide. Always launch jobs with `</dev/null` appended, or use the bundled `bin/agy-delegate` runner script which handles this automatically.
+**Critical: Always close stdin.** `agy` blocks indefinitely (0% CPU, no output, even in print mode) when stdin is an open pipe, which is what non-interactive tool shells provide. Always launch jobs via `agy-delegate` (which handles this automatically) or append `</dev/null`.
 
 ## Preflight Verification (Once per Session)
 
 Before the first job of a session, verify authentication with a quick probe:
 
 ```bash
-agy -p "Reply with exactly: OK" --print-timeout 60s </dev/null
+agy-delegate --timeout 60s "Reply with exactly: OK"
 ```
 
 - Replies `OK`: Authenticated, proceed.
 - Prints a sign-in URL or errors about credentials: Stop and prompt the user to run `agy` once in their own interactive terminal to complete the one-time Google OAuth browser flow.
-- Hangs with no output: Stdin was left open; kill the process and ensure `</dev/null` is used.
 
 ## The Orchestrator Control Panel
 
-When delegating a task to Antigravity, do not simply send an uncalibrated prompt. Actively calibrate the following parameters based on the task scope:
+When delegating a task to Antigravity, actively calibrate the following parameters based on the task scope:
 
 ### 1. Reasoning Effort (`--effort`)
 
@@ -83,13 +107,11 @@ For write jobs, always check status first (`git status --porcelain`) and ensure 
 
 ## Launching Jobs
 
-### Method A: Using the Bundled Runner Script (Recommended)
-
-The repository includes a standalone Python runner (`bin/agy-delegate`) that automates stdin closure, flag validation, and execution logging:
+Use the bundled runner script (`agy-delegate`):
 
 ```bash
 # Example: Fast frontend component generation with low reasoning effort
-./bin/agy-delegate \
+agy-delegate \
   --model gemini-3.8-flash-high \
   --effort low \
   --mode plan \
@@ -97,7 +119,7 @@ The repository includes a standalone Python runner (`bin/agy-delegate`) that aut
   "Write a responsive React Tailwind Card component for product listings. Output pure TSX code."
 
 # Example: In-depth security audit with max reasoning effort
-./bin/agy-delegate \
+agy-delegate \
   --model gemini-4-argon-high \
   --effort max \
   --sandbox \
@@ -106,26 +128,6 @@ The repository includes a standalone Python runner (`bin/agy-delegate`) that aut
   "Perform a security review of authentication handlers in src/auth/. Report findings with severity and line numbers."
 ```
 
-### Method B: Direct CLI Execution
-
-```bash
-cd <repo-root> && agy -p "$(cat <<'EOF'
-<self-contained task prompt>
-EOF
-)" --model gemini-3.8-flash-high --effort medium --print-timeout 10m --dangerously-skip-permissions --sandbox </dev/null > /tmp/agy-<jobname>.log 2>&1 &
-```
-
-Always append `</dev/null` and use `--dangerously-skip-permissions` in non-interactive tool environments to prevent interactive approval prompts from blocking the background process.
-
-## Writing the Job Prompt
-
-Sub-agents run in isolated context windows and do not see your conversation history. An effective prompt must contain:
-
-1. **Concrete Objective:** Specific goal and scope (e.g., "Implement the UserProfile avatar upload handler", not "improve profiles").
-2. **Path Anchors:** Explicit files, directories, and interfaces to inspect.
-3. **Boundaries:** Explicit constraints (e.g., "Do not modify files outside src/components/", "Do not add new external npm dependencies").
-4. **Output Contract:** Precise expected output (e.g., "Return only the complete TypeScript code block", or "Provide a markdown table of findings with File, Line, Issue, Fix").
-
 ## Verification Protocol
 
 Never accept a sub-agent's output on faith:
@@ -133,9 +135,3 @@ Never accept a sub-agent's output on faith:
 1. **Read-Only Jobs:** Check `git status --porcelain` to verify no files were touched. Read the output log, evaluate the findings critically, and synthesize conclusions for the user.
 2. **Write Jobs:** Run `git diff` to inspect every modified line. Execute the project's verification suite (`npm test`, `npx tsc --noEmit`, `cargo check`, etc.). If errors exist, send a targeted follow-up using `--conversation <id>` or fix the trivial issues directly.
 3. **Report:** Clearly report what Antigravity executed, what verification steps passed, and what modifications you made.
-
-## When NOT to Delegate
-
-- Small, single-line edits that take less than 10 seconds to do yourself.
-- Operations requiring interactive user decisions or sensitive production credentials.
-- Irreversible destructive actions (production database migrations, live deployments, branch deletions).

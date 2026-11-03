@@ -2,7 +2,8 @@
 """
 agy-delegate: Lightweight orchestration helper for Google Antigravity CLI (agy).
 Executes non-interactive sub-agent jobs with full control over reasoning effort,
-models, conversation sessions, and directory access. Zero external dependencies.
+models, conversation sessions, and directory access. Includes automated quota
+exhaustion and rate-limit detection for seamless fallback. Zero external dependencies.
 """
 
 import argparse
@@ -15,9 +16,20 @@ import tempfile
 import time
 
 
+RATE_LIMIT_PATTERNS = [
+    r"\b429\b",
+    r"resource.*exhausted",
+    r"quota.*exceeded",
+    r"exhausted.*capacity",
+    r"rate.*limit",
+    r"too many requests",
+    r"stream was interrupted",
+]
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run Antigravity CLI (agy) sub-agent tasks with fine-grained control."
+        description="Run Antigravity CLI (agy) sub-agent tasks with fine-grained control and quota detection."
     )
     parser.add_argument(
         "prompt",
@@ -99,7 +111,6 @@ def resolve_agy_binary():
     agy = shutil.which("agy")
     if agy:
         return agy
-    # Fallback paths
     candidates = [
         os.path.expanduser("~/.local/bin/agy"),
         os.path.expanduser("~/bin/agy"),
@@ -111,10 +122,16 @@ def resolve_agy_binary():
     return "agy"
 
 
+def is_rate_limited(output_text):
+    for pattern in RATE_LIMIT_PATTERNS:
+        if re.search(pattern, output_text, re.IGNORECASE):
+            return True
+    return False
+
+
 def main():
     args = parse_args()
 
-    # Get prompt
     prompt = args.prompt
     if not prompt:
         if not sys.stdin.isatty():
@@ -131,23 +148,16 @@ def main():
 
     cmd = [agy_bin, "-p", prompt]
 
-    # Model and effort
     if args.model:
         cmd.extend(["--model", args.model])
     if args.effort:
         cmd.extend(["--effort", args.effort])
-
-    # Mode
     if args.mode:
         cmd.extend(["--mode", args.mode])
-
-    # Conversation tracking
     if args.conversation:
         cmd.extend(["--conversation", args.conversation])
     elif args.continue_last:
         cmd.append("--continue")
-
-    # Timeout and permissions
     if args.timeout:
         cmd.extend(["--print-timeout", args.timeout])
     if args.skip_permissions:
@@ -155,16 +165,13 @@ def main():
     if args.sandbox:
         cmd.append("--sandbox")
 
-    # Directory permissions
     for d in args.dirs:
         cmd.extend(["--add-dir", os.path.abspath(d)])
 
-    # Format
     cmd.extend(["--output-format", args.output_format])
 
     workdir = os.path.abspath(args.workdir) if args.workdir else os.getcwd()
 
-    # Run command with closed stdin (/dev/null) to prevent headless hanging
     start_time = time.time()
     try:
         proc = subprocess.run(
@@ -180,15 +187,19 @@ def main():
         sys.exit(127)
 
     duration = time.time() - start_time
+    combined_err = (proc.stderr or "") + " " + (proc.stdout or "")
 
-    # Save log if requested
+    # Check for quota or rate-limit issues
+    rate_limited = proc.returncode != 0 and is_rate_limited(combined_err)
+
     if args.log_file:
         try:
             with open(args.log_file, "w", encoding="utf-8") as f:
-                f.write(f"=== Antigravity Execution Log ===\n")
+                f.write("=== Antigravity Execution Log ===\n")
                 f.write(f"Command: {' '.join(cmd)}\n")
                 f.write(f"Duration: {duration:.2f}s\n")
-                f.write(f"Exit code: {proc.returncode}\n\n")
+                f.write(f"Exit code: {proc.returncode}\n")
+                f.write(f"Quota exhausted: {rate_limited}\n\n")
                 f.write("=== STDOUT ===\n")
                 f.write(proc.stdout)
                 f.write("\n=== STDERR ===\n")
@@ -196,7 +207,13 @@ def main():
         except OSError as e:
             print(f"Warning: Failed to write log file: {e}", file=sys.stderr)
 
-    # Output handling
+    if rate_limited:
+        sys.stderr.write("[ANTIGRAVITY_QUOTA_EXHAUSTED] Rate limit or quota exhausted on Antigravity CLI.\n")
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+        # Exit code 42 signals quota exhaustion explicitly to caller
+        sys.exit(42)
+
     if proc.returncode != 0:
         if proc.stderr:
             sys.stderr.write(proc.stderr)

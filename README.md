@@ -2,7 +2,7 @@
 
 # Claude Code Antigravity Agents
 
-*Turn Claude Code into an orchestrator: delegate heavy jobs to Google Antigravity sub-agents with fine-grained control.*
+*Turn Claude Code into an orchestrator: delegate heavy jobs to Google Antigravity sub-agents with fine-grained control and automated quota protection.*
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Orchestrator-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.com/claude-code)
 [![Antigravity CLI](https://img.shields.io/badge/Antigravity_CLI-agy-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://antigravity.google/docs/cli/getting-started)
@@ -26,6 +26,8 @@ With this skill loaded, Claude Code ceases to be a solo worker burning expensive
 
 This fork adds full control over the Antigravity engine rather than treating it as a black box:
 
+- **Proactive-First Triggering:** Claude automatically delegates routine frontend, Tailwind, and boilerplate work without waiting for explicit prompt instructions.
+- **Automated Quota Guard & Fallback:** `agy-delegate` detects rate limits (429, resource exhausted) and signals code 42. For quick tasks, Claude automatically falls back to internal thinking; for large tasks, it asks the user for guidance.
 - **Reasoning Effort Calibration (`--effort`):** Dynamically calibrate thinking effort (`low`, `medium`, `high`, `xhigh`, `max`). Use `low` for zero-latency HTML/CSS and boilerplate; reserve `max` for deep security audits and complex algorithms.
 - **Modern Model Matrix:** Updated for modern model slugs (`gemini-3.8-flash-high`, `gemini-4-argon-high`, etc.).
 - **Deterministic Session Memory (`--conversation <id>`):** Track and resume specific multi-turn conversations for feedback loops without race conditions.
@@ -37,6 +39,7 @@ This fork adds full control over the Antigravity engine rather than treating it 
 - [Why You Want This](#why-you-want-this)
 - [How It Works](#how-it-works)
 - [The Orchestration Control Panel](#the-orchestration-control-panel)
+- [Quota Guard & Fallback Protocol](#quota-guard--fallback-protocol)
 - [Prerequisites](#prerequisites)
 - [Install the Skill](#install-the-skill)
 - [Usage Examples](#usage-examples)
@@ -54,6 +57,7 @@ This fork adds full control over the Antigravity engine rather than treating it 
 | :--- | :--- | :--- |
 | Long audits / boilerplate | Burns primary context and rate limits | Handed off to isolated Antigravity worker |
 | Reasoning depth | Fixed single-model behavior | Configurable per-task thinking effort (`low` to `max`) |
+| Quota exhaustion | Stalls or errors out | Automatic fallback to internal thinking or user prompt |
 | Second opinion | Same model reviewing itself | Genuinely independent multi-model verification |
 | Throughput | Serial execution | Concurrent background workers |
 | Token expenditure | Spent on mechanical typing | Preserved for high-level orchestration |
@@ -93,6 +97,13 @@ Claude calibrates every delegated task using these operational dimensions:
 ### 3. Session Resumption (`--conversation`)
 
 Pass the conversation ID returned from previous jobs to send revision requests ("fix the type error on line 42") without re-explaining the entire project context from scratch.
+
+## Quota Guard & Fallback Protocol
+
+If Antigravity hits rate limits or temporary account capacity exhaustion:
+1. `agy-delegate` catches the error and exits with code `42`.
+2. **For quick/medium tasks (under 150 lines):** Claude automatically solves the task inside its own context without interrupting you.
+3. **For large/multi-file tasks:** Claude stops and asks whether you prefer waiting or running the full job in Claude's context.
 
 ## Prerequisites
 
@@ -149,7 +160,7 @@ You can delegate directly in natural language:
 
 Or run tasks manually using the bundled runner:
 ```bash
-./bin/agy-delegate \
+agy-delegate \
   --model gemini-3.8-flash-high \
   --effort low \
   --mode plan \
