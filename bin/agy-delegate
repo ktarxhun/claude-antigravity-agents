@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""
+agy-delegate: Lightweight orchestration helper for Google Antigravity CLI (agy).
+Executes non-interactive sub-agent jobs with full control over reasoning effort,
+models, conversation sessions, and directory access. Zero external dependencies.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run Antigravity CLI (agy) sub-agent tasks with fine-grained control."
+    )
+    parser.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        help="The task brief / prompt for Antigravity (reads from stdin if omitted).",
+    )
+    parser.add_argument(
+        "-m", "--model",
+        default="gemini-3.8-flash-high",
+        help="Model slug (e.g. gemini-3.8-flash-high, gemini-4-argon-high). Default: gemini-3.8-flash-high.",
+    )
+    parser.add_argument(
+        "-e", "--effort",
+        choices=["low", "medium", "high", "xhigh", "max"],
+        default="medium",
+        help="Reasoning effort level (low|medium|high|xhigh|max). Default: medium.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["plan", "accept-edits"],
+        default=None,
+        help="Execution mode (plan for read-only design, accept-edits for direct file changes).",
+    )
+    parser.add_argument(
+        "-c", "--conversation",
+        default=None,
+        help="Resume an existing Antigravity conversation by session ID.",
+    )
+    parser.add_argument(
+        "--continue-last",
+        action="store_true",
+        help="Continue the most recent Antigravity conversation.",
+    )
+    parser.add_argument(
+        "--timeout",
+        default="10m",
+        help="Execution time limit (e.g. 5m, 10m, 30m). Default: 10m.",
+    )
+    parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        help="Run in terminal sandbox mode (recommended for read-only tasks).",
+    )
+    parser.add_argument(
+        "--add-dir",
+        action="append",
+        dest="dirs",
+        default=[],
+        help="Grant access to an extra directory (can be repeated).",
+    )
+    parser.add_argument(
+        "--output-format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text or json). Default: text.",
+    )
+    parser.add_argument(
+        "--skip-permissions",
+        action="store_true",
+        default=True,
+        help="Auto-approve tool permissions for headless execution (default: True).",
+    )
+    parser.add_argument(
+        "--workdir",
+        default=None,
+        help="Working directory to run the task in (default: current directory).",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Optional path to save full logs to.",
+    )
+    return parser.parse_args()
+
+
+def resolve_agy_binary():
+    import shutil
+    agy = shutil.which("agy")
+    if agy:
+        return agy
+    # Fallback paths
+    candidates = [
+        os.path.expanduser("~/.local/bin/agy"),
+        os.path.expanduser("~/bin/agy"),
+        "/usr/local/bin/agy",
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return "agy"
+
+
+def main():
+    args = parse_args()
+
+    # Get prompt
+    prompt = args.prompt
+    if not prompt:
+        if not sys.stdin.isatty():
+            prompt = sys.stdin.read().strip()
+        else:
+            print("Error: No prompt provided. Pass as argument or pipe via stdin.", file=sys.stderr)
+            sys.exit(1)
+
+    if not prompt:
+        print("Error: Prompt cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+
+    agy_bin = resolve_agy_binary()
+
+    cmd = [agy_bin, "-p", prompt]
+
+    # Model and effort
+    if args.model:
+        cmd.extend(["--model", args.model])
+    if args.effort:
+        cmd.extend(["--effort", args.effort])
+
+    # Mode
+    if args.mode:
+        cmd.extend(["--mode", args.mode])
+
+    # Conversation tracking
+    if args.conversation:
+        cmd.extend(["--conversation", args.conversation])
+    elif args.continue_last:
+        cmd.append("--continue")
+
+    # Timeout and permissions
+    if args.timeout:
+        cmd.extend(["--print-timeout", args.timeout])
+    if args.skip_permissions:
+        cmd.append("--dangerously-skip-permissions")
+    if args.sandbox:
+        cmd.append("--sandbox")
+
+    # Directory permissions
+    for d in args.dirs:
+        cmd.extend(["--add-dir", os.path.abspath(d)])
+
+    # Format
+    cmd.extend(["--output-format", args.output_format])
+
+    workdir = os.path.abspath(args.workdir) if args.workdir else os.getcwd()
+
+    # Run command with closed stdin (/dev/null) to prevent headless hanging
+    start_time = time.time()
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=workdir,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    except FileNotFoundError:
+        print(f"Error: Antigravity CLI binary '{agy_bin}' not found.", file=sys.stderr)
+        sys.exit(127)
+
+    duration = time.time() - start_time
+
+    # Save log if requested
+    if args.log_file:
+        try:
+            with open(args.log_file, "w", encoding="utf-8") as f:
+                f.write(f"=== Antigravity Execution Log ===\n")
+                f.write(f"Command: {' '.join(cmd)}\n")
+                f.write(f"Duration: {duration:.2f}s\n")
+                f.write(f"Exit code: {proc.returncode}\n\n")
+                f.write("=== STDOUT ===\n")
+                f.write(proc.stdout)
+                f.write("\n=== STDERR ===\n")
+                f.write(proc.stderr)
+        except OSError as e:
+            print(f"Warning: Failed to write log file: {e}", file=sys.stderr)
+
+    # Output handling
+    if proc.returncode != 0:
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+        if proc.stdout:
+            sys.stdout.write(proc.stdout)
+        sys.exit(proc.returncode)
+
+    sys.stdout.write(proc.stdout)
+
+
+if __name__ == "__main__":
+    main()
